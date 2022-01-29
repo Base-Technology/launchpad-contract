@@ -738,13 +738,15 @@ abstract contract Ownable is Context {
 
 contract GovManager is Ownable {
     address public GovernerContract;
-
+    event SetGovernerContract(address indexed previousGoverner, address indexed newGoverner);
     modifier onlyOwnerOrGov() {
         require(msg.sender == owner() || msg.sender == GovernerContract, "Authorization Error");
         _;
     }
 
     function setGovernerContract(address _address) external onlyOwnerOrGov{
+        require(_address != address(0),"_address can not be zero address!");
+        emit SetGovernerContract(GovernerContract, _address);
         GovernerContract = _address;
     }
 
@@ -953,7 +955,6 @@ contract Pools is Manageable {
         uint distributionID;
         uint distributionTime; // after this time,gov could distribute tokens to all user
         uint distributionShare; // share/totalShare = distributionAmount/TotalAmount
-        uint distributionStatus; // 0=uncompleted;1=complete
     }
 
     function isPoolLocked(uint256 _id) public view returns(bool){
@@ -1029,8 +1030,7 @@ contract Pools is Manageable {
             pools[_id].MoreData.DistributionData[pools[_id].MoreData.distributionCount] = PoolDistributionData(
                 pools[_id].MoreData.distributionCount,
                 distributionTimeArr[i],
-                distributionShareArr[i],
-                0
+                distributionShareArr[i]
             );
         }
     }
@@ -1044,7 +1044,7 @@ contract Pools is Manageable {
 }
 
 contract PoolsData is Pools {
-    enum PoolStatus {PreCreated, PreOpen, Open, PreDistribute, Distributing, Finished, closed} //the status of the pools
+    enum PoolStatus {PreCreated, PreOpen, Open, PreDistribute, Distributing, closed} //the status of the pools
 
     function GetMyPoolsId() public view returns (uint256[] memory) {
         return poolsMap[msg.sender];
@@ -1080,24 +1080,20 @@ contract PoolsData is Pools {
         returns (
             uint,
             uint[] memory,
-            uint[] memory,
             uint[] memory
         )
     {
         uint distributionCount = pools[_Id].MoreData.distributionCount;
         uint[] memory distributionTimeArr = new uint[](distributionCount);
         uint[] memory distributionShareArr = new uint[](distributionCount);
-        uint[] memory distributionStatusArr = new uint[](distributionCount);
         for(uint i = 0;i<distributionCount;i++){
             distributionTimeArr[i] = pools[_Id].MoreData.DistributionData[i+1].distributionTime;
             distributionShareArr[i] = pools[_Id].MoreData.DistributionData[i+1].distributionShare;
-            distributionStatusArr[i] = pools[_Id].MoreData.DistributionData[i+1].distributionStatus;
         }
         return (
             distributionCount,
             distributionTimeArr,
-            distributionShareArr,
-            distributionStatusArr
+            distributionShareArr
         );
     }
 
@@ -1133,20 +1129,10 @@ contract PoolsData is Pools {
         if (
             now > pools[_id].BaseData.EndTime &&
             pools[_id].MoreData.distributionCount >0 &&
-            now >= pools[_id].MoreData.DistributionData[1].distributionTime &&
-            pools[_id].MoreData.DistributionData[pools[_id].MoreData.distributionCount].distributionStatus == 0
+            now >= pools[_id].MoreData.DistributionData[1].distributionTime
         ) //no tokens on direct pool
         {
             return (PoolStatus.Distributing);
-        }
-        if (
-            now > pools[_id].BaseData.EndTime &&
-            pools[_id].MoreData.distributionCount >0 &&
-            now >= pools[_id].MoreData.DistributionData[pools[_id].MoreData.distributionCount].distributionTime &&
-            pools[_id].MoreData.DistributionData[pools[_id].MoreData.distributionCount].distributionStatus == 1
-        ) {
-            // After finish time - not locked
-            return (PoolStatus.Finished);
         }
         return (PoolStatus.closed);
     }
@@ -1205,7 +1191,7 @@ contract Invest is PoolsData {
         require(GetPoolStatus(_PoolId) == PoolStatus.Open,"Wrong pool status to invest tokens");
         require(
             pools[_PoolId].BaseData.Maincoin != address(0x0),
-            "Pool is for ETH, use InvestETH"
+            "Pool is not be investable"
         );
         require(_Amount>0,"Need Valid _Amount");
         TransferInToken(pools[_PoolId].BaseData.Maincoin, msg.sender, _Amount);
